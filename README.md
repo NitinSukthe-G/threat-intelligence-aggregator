@@ -229,7 +229,6 @@ threat-intelligence-aggregator/
 │   └── validator.py
 |
 ├── data/
-│   ├── normalized/
 │   ├── output/
 │   └── raw/
 |
