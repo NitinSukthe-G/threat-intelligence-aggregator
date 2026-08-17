@@ -1,0 +1,18 @@
+venv/
+.env
+__pycache__/
+*.pyc
+
+# Live threat intelligence feeds
+data/raw/feodo.csv
+data/raw/phishunt.csv
+
+# Generated runtime output
+data/output/ti_results.json
+data/output/blocklist.csv
+data/output/blocklist.json
+data/output/ip_blocklist.txt
+data/output/domain_blocklist.txt
+data/output/url_blocklist.txt
+data/output/hash_blocklist.txt
+data/output/threat_intelligence_report.html
