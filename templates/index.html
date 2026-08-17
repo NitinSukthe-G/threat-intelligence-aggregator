@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="description"
+        content="Non-AI Threat Intelligence Aggregator Dashboard"
+    >
+
+    <title>
+        Threat Intelligence Aggregator
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <!-- HEADER -->
+
+    <header class="header">
+
+        <div>
+
+            <h1>
+                Threat Intelligence Aggregator
+            </h1>
+
+            <p>
+                Non-AI Threat Intelligence Collection,
+                Correlation and Risk Analysis
+            </p>
+
+        </div>
+
+        <div class="status-badge">
+            ● SYSTEM ONLINE
+        </div>
+
+    </header>
+
+
+    <!-- ACTIONS -->
+
+    <div class="actions">
+
+        <a
+            href="/run-pipeline"
+            class="run-button"
+        >
+            Run Threat Intelligence Pipeline
+        </a>
+
+        <a
+            href="/download/ti_results.json"
+            class="secondary-button"
+        >
+            Download Results
+        </a>
+
+    </div>
+
+
+    <!-- RISK CARDS -->
+
+    <section class="cards">
+
+        <div class="card">
+
+            <div class="card-title">
+                Total IOCs
+            </div>
+
+            <div class="value">
+                {{ total_iocs }}
+            </div>
+
+            <div class="card-description">
+                Unique indicators processed
+            </div>
+
+        </div>
+
+
+        <div class="card high-card">
+
+            <div class="card-title">
+                High Risk
+            </div>
+
+            <div class="value high-value">
+                {{ high }}
+            </div>
+
+            <div class="card-description">
+                Critical priority indicators
+            </div>
+
+        </div>
+
+
+        <div class="card medium-card">
+
+            <div class="card-title">
+                Medium Risk
+            </div>
+
+            <div class="value medium-value">
+                {{ medium }}
+            </div>
+
+            <div class="card-description">
+                Indicators requiring attention
+            </div>
+
+        </div>
+
+
+        <div class="card low-card">
+
+            <div class="card-title">
+                Low Risk
+            </div>
+
+            <div class="value low-value">
+                {{ low }}
+            </div>
+
+            <div class="card-description">
+                Lower priority indicators
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- FEED STATISTICS -->
+
+    <section class="panel">
+
+        <div class="section-heading">
+
+            <h2>
+                Feed Statistics
+            </h2>
+
+            <span class="section-label">
+                Collection
+            </span>
+
+        </div>
+
+
+        <div class="summary-grid">
+
+            <div class="summary-item">
+
+                <span>
+                    Feeds Processed
+                </span>
+
+                <strong>
+                    {{ feed_count }}
+                </strong>
+
+            </div>
+
+
+            <div class="summary-item">
+
+                <span>
+                    Unique IOCs
+                </span>
+
+                <strong>
+                    {{ unique_iocs }}
+                </strong>
+
+            </div>
+
+
+            <div class="summary-item">
+
+                <span>
+                    Correlated IOCs
+                </span>
+
+                <strong>
+                    {{ correlated_count }}
+                </strong>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- IOC TYPE SUMMARY -->
+
+    <section class="panel">
+
+        <div class="section-heading">
+
+            <h2>
+                IOC Type Summary
+            </h2>
+
+            <span class="section-label">
+                Classification
+            </span>
+
+        </div>
+
+
+        <div class="summary-grid">
+
+            <div class="summary-item">
+
+                <span>
+                    IP Addresses
+                </span>
+
+                <strong>
+                    {{ ip_count }}
+                </strong>
+
+            </div>
+
+
+            <div class="summary-item">
+
+                <span>
+                    Domains
+                </span>
+
+                <strong>
+                    {{ domain_count }}
+                </strong>
+
+            </div>
+
+
+            <div class="summary-item">
+
+                <span>
+                    URLs
+                </span>
+
+                <strong>
+                    {{ url_count }}
+                </strong>
+
+            </div>
+
+
+            <div class="summary-item">
+
+                <span>
+                    Hashes
+                </span>
+
+                <strong>
+                    {{ hash_count }}
+                </strong>
+
+            </div>
+
+
+            <div class="summary-item">
+
+                <span>
+                    Emails
+                </span>
+
+                <strong>
+                    {{ email_count }}
+                </strong>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- BLOCKLISTS -->
+
+    <section class="panel">
+
+        <div class="section-heading">
+
+            <h2>
+                Blocklists & Reports
+            </h2>
+
+            <span class="section-label">
+                Export
+            </span>
+
+        </div>
+
+        <div class="downloads">
+
+            <a href="/download/ip_blocklist.txt">
+                Download IP Blocklist
+            </a>
+
+            <a href="/download/domain_blocklist.txt">
+                Download Domain Blocklist
+            </a>
+
+            <a href="/download/url_blocklist.txt">
+                Download URL Blocklist
+            </a>
+
+            <a href="/download/hash_blocklist.txt">
+                Download Hash Blocklist
+            </a>
+
+            <a href="/download/blocklist.csv">
+                Download CSV
+            </a>
+
+            <a href="/download/blocklist.json">
+                Download JSON
+            </a>
+
+            <a href="/download/ti_results.json">
+                Download TI Results
+            </a>
+
+            <a href="/download/threat_intelligence_report.html">
+                Download TI Report
+            </a>
+
+        </div>
+
+    </section>
+
+    <!-- FILTERS -->
+
+    <section class="panel">
+
+        <div class="section-heading">
+
+            <h2>
+                Indicator Search & Filters
+            </h2>
+
+            <span class="section-label">
+                Investigation
+            </span>
+
+        </div>
+
+
+        <form
+            method="GET"
+            action="/"
+            class="filter-form"
+        >
+
+            <div class="filter-group">
+
+                <label for="search">
+                    Search
+                </label>
+
+                <input
+                    type="text"
+                    id="search"
+                    name="search"
+                    value="{{ search }}"
+                    placeholder="IP, domain, URL, malware or source"
+                >
+
+            </div>
+
+
+            <div class="filter-group">
+
+                <label for="type">
+                    IOC Type
+                </label>
+
+                <select
+                    id="type"
+                    name="type"
+                >
+
+                    <option
+                        value="ALL"
+                        {% if selected_type == "ALL" %}
+                        selected
+                        {% endif %}
+                    >
+                        All Types
+                    </option>
+
+                    <option
+                        value="IP"
+                        {% if selected_type == "IP" %}
+                        selected
+                        {% endif %}
+                    >
+                        IP
+                    </option>
+
+                    <option
+                        value="DOMAIN"
+                        {% if selected_type == "DOMAIN" %}
+                        selected
+                        {% endif %}
+                    >
+                        Domain
+                    </option>
+
+                    <option
+                        value="URL"
+                        {% if selected_type == "URL" %}
+                        selected
+                        {% endif %}
+                    >
+                        URL
+                    </option>
+
+                    <option
+                        value="MD5"
+                        {% if selected_type == "MD5" %}
+                        selected
+                        {% endif %}
+                    >
+                        MD5
+                    </option>
+
+                    <option
+                        value="SHA1"
+                        {% if selected_type == "SHA1" %}
+                        selected
+                        {% endif %}
+                    >
+                        SHA1
+                    </option>
+
+                    <option
+                        value="SHA256"
+                        {% if selected_type == "SHA256" %}
+                        selected
+                        {% endif %}
+                    >
+                        SHA256
+                    </option>
+
+                    <option
+                        value="EMAIL"
+                        {% if selected_type == "EMAIL" %}
+                        selected
+                        {% endif %}
+                    >
+                        Email
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <div class="filter-group">
+
+                <label for="risk">
+                    Risk Level
+                </label>
+
+                <select
+                    id="risk"
+                    name="risk"
+                >
+
+                    <option
+                        value="ALL"
+                        {% if selected_risk == "ALL" %}
+                        selected
+                        {% endif %}
+                    >
+                        All Risk Levels
+                    </option>
+
+                    <option
+                        value="HIGH"
+                        {% if selected_risk == "HIGH" %}
+                        selected
+                        {% endif %}
+                    >
+                        High
+                    </option>
+
+                    <option
+                        value="MEDIUM"
+                        {% if selected_risk == "MEDIUM" %}
+                        selected
+                        {% endif %}
+                    >
+                        Medium
+                    </option>
+
+                    <option
+                        value="LOW"
+                        {% if selected_risk == "LOW" %}
+                        selected
+                        {% endif %}
+                    >
+                        Low
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <div class="filter-actions">
+
+                <button
+                    type="submit"
+                    class="filter-button"
+                >
+                    Apply Filters
+                </button>
+
+                <a
+                    href="/"
+                    class="clear-button"
+                >
+                    Clear
+                </a>
+
+            </div>
+
+        </form>
+
+    </section>
+
+
+    <!-- INDICATORS -->
+
+    <section class="panel">
+
+        <div class="section-heading">
+
+            <h2>
+                Threat Indicators
+            </h2>
+
+            <span class="section-label">
+                Latest Results
+            </span>
+
+        </div>
+
+
+        <div class="results-info">
+
+            <span>
+
+                Showing
+                <strong>
+                    {{ start_index }}
+                </strong>
+                -
+                <strong>
+                    {{ end_index }}
+                </strong>
+
+                of
+                <strong>
+                    {{ total_filtered }}
+                </strong>
+
+                matching indicators
+
+            </span>
+
+            <span>
+                Page
+                <strong>
+                    {{ page }}
+                </strong>
+                of
+                <strong>
+                    {{ total_pages }}
+                </strong>
+            </span>
+
+        </div>
+
+
+        {% if results %}
+
+        <div class="table-container">
+
+            <table>
+
+                <thead>
+
+                    <tr>
+
+                        <th>
+                            Indicator
+                        </th>
+
+                        <th>
+                            Type
+                        </th>
+
+                        <th>
+                            Source
+                        </th>
+
+                        <th>
+                            Sources
+                        </th>
+
+                        <th>
+                            Risk Score
+                        </th>
+
+                        <th>
+                            Risk Level
+                        </th>
+
+                        <th>
+                            Malware
+                        </th>
+
+                        <th>
+                            Risk Reason
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+
+                <tbody>
+
+                    {% for item in results %}
+
+                    <tr>
+
+                        <td class="indicator-cell">
+                            {{ item.indicator }}
+                        </td>
+
+
+                        <td>
+
+                            <span class="type-badge">
+
+                                {{ item.type }}
+
+                            </span>
+
+                        </td>
+
+
+                        <td>
+
+                            {{ item.sources | join(", ") }}
+
+                        </td>
+
+
+                        <td class="center">
+
+                            {{ item.source_count }}
+
+                        </td>
+
+
+                        <td class="center">
+
+                            {{ item.risk_score }}
+
+                        </td>
+
+
+                        <td>
+
+                            {% if item.risk_level == "HIGH" %}
+
+                            <span class="risk high">
+                                HIGH
+                            </span>
+
+                            {% elif item.risk_level == "MEDIUM" %}
+
+                            <span class="risk medium">
+                                MEDIUM
+                            </span>
+
+                            {% else %}
+
+                            <span class="risk low">
+                                LOW
+                            </span>
+
+                            {% endif %}
+
+                        </td>
+
+
+                        <td>
+
+                            {% if item.malware %}
+
+                                {{ item.malware }}
+
+                            {% else %}
+
+                                -
+
+                            {% endif %}
+
+                        </td>
+
+
+                        <td class="reason-cell">
+
+                            {% if item.risk_reasons %}
+
+                                {{ item.risk_reasons | join("; ") }}
+
+                            {% else %}
+
+                                No additional information
+
+                            {% endif %}
+
+                        </td>
+
+                    </tr>
+
+                    {% endfor %}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+
+        <!-- PAGINATION -->
+
+        <div class="pagination">
+
+            {% if page > 1 %}
+
+            <a
+                href="?search={{ search | urlencode }}&type={{ selected_type }}&risk={{ selected_risk }}&page={{ page - 1 }}"
+                class="page-button"
+            >
+                ← Previous
+            </a>
+
+            {% endif %}
+
+
+            <span class="page-number">
+                Page {{ page }} / {{ total_pages }}
+            </span>
+
+
+            {% if page < total_pages %}
+
+            <a
+                href="?search={{ search | urlencode }}&type={{ selected_type }}&risk={{ selected_risk }}&page={{ page + 1 }}"
+                class="page-button"
+            >
+                Next →
+            </a>
+
+            {% endif %}
+
+        </div>
+
+        {% else %}
+
+        <div class="empty-state">
+
+            <h3>
+                No indicators found
+            </h3>
+
+            <p>
+                Try changing the search or filter values.
+            </p>
+
+        </div>
+
+        {% endif %}
+
+    </section>
+
+
+    <!-- WORKFLOW -->
+
+    <section class="panel">
+
+        <div class="section-heading">
+
+            <h2>
+                Processing Workflow
+            </h2>
+
+            <span class="section-label">
+                Architecture
+            </span>
+
+        </div>
+
+
+        <div class="workflow">
+
+            <div class="workflow-step">
+                Feed Collection
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="workflow-step">
+                IOC Parsing
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="workflow-step">
+                Validation
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="workflow-step">
+                Normalization
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="workflow-step">
+                Correlation
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="workflow-step">
+                Risk Scoring
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="workflow-step">
+                Blocklists
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- FOOTER -->
+
+    <footer>
+
+        <p>
+            Threat Intelligence Aggregator
+            <span>|</span>
+            Non-AI
+            <span>|</span>
+            Internship Project
+        </p>
+
+    </footer>
+
+</div>
+
+</body>
+
+</html>
