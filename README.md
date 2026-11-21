@@ -7,9 +7,13 @@ A **non-AI** threat-intelligence platform that collects indicators of compromise
 
 ## Walkthrough video
 
-[![Watch the walkthrough](docs/walkthrough_thumbnail.jpg)](docs/ThreatIntelligenceAggregator_walkthrough.mp4)
 
-**[Watch the 1½-minute narrated walkthrough](docs/ThreatIntelligenceAggregator_walkthrough.mp4)** (1080p). It shows the live console, feed health, cross-feed correlation, explainable scores, the indicator lookup, the exported blocklists and the threat report. (On GitHub, click the image or link and the video opens in the browser player.)
+
+https://github.com/user-attachments/assets/811bc8d1-8a75-4e59-b4fb-94a03c811feb
+
+
+
+It shows the live console, feed health, cross-feed correlation, explainable scores, the indicator lookup, the exported blocklists and the threat report. (On GitHub, click the image or link and the video opens in the browser player.)
 
 ## Screenshots
 
