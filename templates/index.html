@@ -1,915 +1,239 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-
-    <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <meta
-        name="description"
-        content="Non-AI Threat Intelligence Aggregator Dashboard"
-    >
-
-    <title>
-        Threat Intelligence Aggregator
-    </title>
-
-    <link
-        rel="stylesheet"
-        href="{{ url_for('static', filename='style.css') }}"
-    >
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Non-AI Threat Intelligence Aggregator: multi-feed collection, correlation, risk scoring and blocklists.">
+<title>Threat Intelligence Aggregator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 4 7v8c0 7 5 13 12 15 7-2 12-8 12-15V7z' fill='%236aa8ff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-
-
 <body>
-
 <div class="container">
 
-    <!-- HEADER -->
-
-    <header class="header">
-
-        <div>
-
-            <h1>
-                Threat Intelligence Aggregator
-            </h1>
-
-            <p>
-                Non-AI Threat Intelligence Collection,
-                Correlation and Risk Analysis
-            </p>
-
-        </div>
-
-        <div class="status-badge">
-            ● SYSTEM ONLINE
-        </div>
-
-    </header>
-
-
-    <!-- ACTIONS -->
-
-    <div class="actions">
-
-        <a
-            href="/run-pipeline"
-            class="run-button"
-        >
-            Run Threat Intelligence Pipeline
-        </a>
-
-        <a
-            href="/download/ti_results.json"
-            class="secondary-button"
-        >
-            Download Results
-        </a>
-
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true"><path d="M16 2 4 7v8c0 7 5 13 12 15 7-2 12-8 12-15V7z" fill="#6aa8ff"/><path d="m11 16 4 4 7-8" stroke="#0b1020" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div>
+      <h1>Threat Intelligence Aggregator</h1>
+      <p>Collect &middot; Normalize &middot; Correlate &middot; Score &middot; Block &mdash; rule-based, no AI</p>
     </div>
+  </div>
+  <div class="top-actions">
+    <span class="live" id="live-pill" data-running="{{ 'true' if running else 'false' }}">
+      <i></i><span id="live-text">{% if running %}Pipeline running&hellip;{% elif age_label %}Updated {{ age_label }}{% else %}No data yet{% endif %}</span>
+    </span>
+    <button class="btn primary" id="run-btn" data-needs-token="{{ 'true' if needs_token else 'false' }}" data-cooldown="{{ cooldown }}" {% if running %}disabled{% endif %}>Run pipeline</button>
+    <a class="btn" href="{{ url_for('report') }}" target="_blank" rel="noopener">Full report</a>
+  </div>
+</header>
 
+{% if not has_data %}
+<section class="panel empty-hero">
+  <h2>Building your first intelligence snapshot&hellip;</h2>
+  <p>The aggregator is downloading and processing the live feeds. This takes about a minute on first start. The page refreshes automatically.</p>
+  <div class="loader"></div>
+</section>
+{% else %}
 
-    <!-- RISK CARDS -->
+<section class="kpis">
+  <div class="kpi"><span>Unique indicators</span><b>{{ '{:,}'.format(summary.unique_iocs or 0) }}</b><small>from {{ '{:,}'.format(summary.raw_iocs or 0) }} raw records</small></div>
+  <div class="kpi high"><span>High risk</span><b>{{ '{:,}'.format(by_risk.HIGH or 0) }}</b><small>block immediately</small></div>
+  <div class="kpi med"><span>Medium risk</span><b>{{ '{:,}'.format(by_risk.MEDIUM or 0) }}</b><small>monitor / block</small></div>
+  <div class="kpi low"><span>Low risk</span><b>{{ '{:,}'.format(by_risk.LOW or 0) }}</b><small>watchlist only</small></div>
+  <div class="kpi acc"><span>Cross-feed correlated</span><b>{{ '{:,}'.format(summary.correlated_iocs or 0) }}</b><small>up to {{ summary.max_independent_sources or 0 }} independent feeds</small></div>
+  <div class="kpi"><span>Feeds online</span><b>{{ summary.feeds_ok or 0 }}/{{ summary.feeds_configured or 0 }}</b><small>{{ summary.feeds_skipped or 0 }} skipped &middot; {{ summary.feeds_failed or 0 }} failed</small></div>
+</section>
 
-    <section class="cards">
+<section class="grid3">
+  <div class="panel">
+    <h2>Risk distribution</h2>
+    {% set total_risk = (by_risk.HIGH or 0) + (by_risk.MEDIUM or 0) + (by_risk.LOW or 0) %}
+    {% if total_risk %}
+    {% set h = (by_risk.HIGH or 0) / total_risk * 100 %}
+    {% set m = (by_risk.MEDIUM or 0) / total_risk * 100 %}
+    <div class="donut-wrap">
+      <div class="donut" style="background:conic-gradient(var(--high) 0 {{ h }}%, var(--med) {{ h }}% {{ h + m }}%, var(--low) {{ h + m }}% 100%)"><div><b>{{ '{:,}'.format(total_risk) }}</b><span>indicators</span></div></div>
+      <ul class="legend">
+        <li><i class="dot high"></i>High <b>{{ '{:,}'.format(by_risk.HIGH or 0) }}</b></li>
+        <li><i class="dot med"></i>Medium <b>{{ '{:,}'.format(by_risk.MEDIUM or 0) }}</b></li>
+        <li><i class="dot low"></i>Low <b>{{ '{:,}'.format(by_risk.LOW or 0) }}</b></li>
+      </ul>
+    </div>
+    {% endif %}
+  </div>
 
-        <div class="card">
+  <div class="panel">
+    <h2>Indicators by type</h2>
+    {% set max_type = (by_type.values() | list | max) if by_type else 1 %}
+    {% for name, count in by_type.items() | sort(attribute='1', reverse=True) %}
+    <div class="hbar"><span class="lbl">{{ name }}</span><div class="track"><i style="width:{{ (count / max_type * 100) | round(1) }}%"></i></div><b>{{ '{:,}'.format(count) }}</b></div>
+    {% endfor %}
+  </div>
 
-            <div class="card-title">
-                Total IOCs
-            </div>
+  <div class="panel">
+    <h2>Blocklists generated</h2>
+    <div class="bl-grid">
+      {% for key, value in (blocklists.counts or {}).items() %}
+      <div><b>{{ '{:,}'.format(value) }}</b><span>{{ key }}</span></div>
+      {% endfor %}
+    </div>
+    <p class="hint">Entries with risk score &ge; {{ blocklists.min_score or 35 }}. {{ '{:,}'.format(blocklists.firewall_networks or 0) }} firewall networks after CIDR collapsing.</p>
+  </div>
+</section>
 
-            <div class="value">
-                {{ total_iocs }}
-            </div>
+<section class="panel">
+  <h2>Check an indicator</h2>
+  <form class="lookup" id="lookup-form" autocomplete="off">
+    <input type="text" id="lookup-input" placeholder="Paste an IP, domain, URL or file hash&hellip;" maxlength="2048" aria-label="Indicator to look up">
+    <button class="btn primary" type="submit">Look up</button>
+  </form>
+  <div id="lookup-result" class="lookup-result" hidden></div>
+</section>
 
-            <div class="card-description">
-                Unique indicators processed
-            </div>
+<section class="panel">
+  <h2>Feed health</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Feed</th><th>Status</th><th class="num">Records</th><th>Contribution</th><th>Notes</th></tr></thead>
+    <tbody>
+    {% set max_rec = (feeds | map(attribute='records') | list | max) if feeds else 1 %}
+    {% for f in feeds %}
+    <tr>
+      <td><b>{{ f.name }}</b><div class="muted small">{{ f.description }}</div></td>
+      <td><span class="pill {{ 'ok' if f.status in ('fresh','cached') else 'warn' if f.status in ('stale','skipped') else 'bad' }}">{{ f.status }}</span></td>
+      <td class="num">{{ '{:,}'.format(f.records) }}</td>
+      <td class="w200"><div class="track"><i style="width:{{ ((f.records / max_rec * 100) if max_rec else 0) | round(1) }}%"></i></div></td>
+      <td class="muted small">{{ f.error }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
 
+{% if top_correlated %}
+<section class="panel">
+  <h2>Top correlated indicators <span class="hint inline">confirmed by multiple independent feeds</span></h2>
+  <div class="chips">
+    {% for item in top_correlated %}
+    <a class="chip" href="{{ query(search=item.indicator, page=1) }}#explorer">
+      <code>{{ item.indicator }}</code><span>{{ item.independent_count }} feeds &middot; {{ item.risk_score }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="panel" id="explorer">
+  <div class="section-head">
+    <h2>IOC explorer</h2>
+    <div class="downloads-inline">
+      <a class="btn small" href="/api/iocs.csv?{{ request.query_string.decode() }}">Export view (CSV)</a>
+    </div>
+  </div>
+
+  <form class="filters" method="get" action="#explorer">
+    <input type="text" name="search" value="{{ args.get('search','') }}" placeholder="Search indicator, malware, source, tag&hellip;" aria-label="Search">
+    <select name="type" aria-label="Type">
+      {% for t in ['ALL','IP','CIDR','DOMAIN','URL','HASH','EMAIL'] %}<option value="{{ t }}" {{ 'selected' if args.get('type','ALL').upper()==t }}>{{ 'All types' if t=='ALL' else t }}</option>{% endfor %}
+    </select>
+    <select name="risk" aria-label="Risk">
+      {% for t in ['ALL','HIGH','MEDIUM','LOW'] %}<option value="{{ t }}" {{ 'selected' if args.get('risk','ALL').upper()==t }}>{{ 'All risk levels' if t=='ALL' else t }}</option>{% endfor %}
+    </select>
+    <select name="source" aria-label="Source">
+      <option value="ALL">All sources</option>
+      {% for s in sources %}<option value="{{ s }}" {{ 'selected' if args.get('source')==s }}>{{ s }}</option>{% endfor %}
+    </select>
+    <select name="min_sources" aria-label="Minimum independent sources">
+      {% for n in [1,2,3] %}<option value="{{ n }}" {{ 'selected' if args.get('min_sources','1')|string==n|string }}>{{ 'Any # of feeds' if n==1 else n ~ '+ feeds' }}</option>{% endfor %}
+    </select>
+    <select name="sort" aria-label="Sort">
+      {% for k,l in [('score','Highest risk'),('sources','Most feeds'),('recent','Most recent'),('indicator','A-Z')] %}<option value="{{ k }}" {{ 'selected' if args.get('sort','score')==k }}>{{ l }}</option>{% endfor %}
+    </select>
+    <button class="btn primary" type="submit">Apply</button>
+    <a class="btn" href="{{ url_for('dashboard') }}#explorer">Reset</a>
+  </form>
+
+  <p class="results-info">Showing <b>{{ '{:,}'.format(start_index) }}&ndash;{{ '{:,}'.format(end_index) }}</b> of <b>{{ '{:,}'.format(total) }}</b> indicators</p>
+
+  {% if results %}
+  <div class="table-wrap">
+  <table class="ioc-table">
+    <thead><tr><th>Indicator</th><th>Type</th><th>Sources</th><th class="num">Feeds</th><th class="num">Score</th><th>Risk</th><th>Malware / category</th><th></th></tr></thead>
+    <tbody>
+    {% for item in results %}
+    <tr class="ioc-row">
+      <td class="ind"><code>{{ item.indicator }}</code></td>
+      <td><span class="type">{{ item.type }}</span></td>
+      <td class="small">{{ item.sources | join(', ') }}</td>
+      <td class="num">{{ item.independent_count }}</td>
+      <td class="num"><div class="score"><i style="width:{{ item.risk_score }}%"></i><span>{{ item.risk_score }}</span></div></td>
+      <td><span class="pill {{ item.risk_level }}">{{ item.risk_level }}</span></td>
+      <td class="small">{{ item.malware or item.category or '—' }}</td>
+      <td class="acts"><button class="icon-btn" data-copy="{{ item.indicator }}" title="Copy indicator" aria-label="Copy indicator">⧉</button><button class="icon-btn toggle" title="Details" aria-label="Show details">▾</button></td>
+    </tr>
+    <tr class="detail" hidden>
+      <td colspan="8">
+        <div class="detail-grid">
+          <div><h4>Why this score</h4><ul>{% for r in item.risk_reasons %}<li>{{ r }}</li>{% endfor %}</ul></div>
+          <div><h4>Metadata</h4>
+            <dl>
+              <dt>First seen</dt><dd>{{ item.first_seen or '—' }}</dd>
+              <dt>Last seen</dt><dd>{{ item.last_online or '—' }}</dd>
+              <dt>Confidence</dt><dd>{{ item.confidence }}</dd>
+              {% if item.port %}<dt>Port</dt><dd>{{ item.port }}</dd>{% endif %}
+              {% if item.status %}<dt>Status</dt><dd>{{ item.status }}</dd>{% endif %}
+              {% if item.reference %}<dt>Reference</dt><dd>{{ item.reference }}</dd>{% endif %}
+              {% if item.tags %}<dt>Tags</dt><dd>{{ item.tags | join(', ') }}</dd>{% endif %}
+            </dl>
+          </div>
         </div>
-
-
-        <div class="card high-card">
-
-            <div class="card-title">
-                High Risk
-            </div>
-
-            <div class="value high-value">
-                {{ high }}
-            </div>
-
-            <div class="card-description">
-                Critical priority indicators
-            </div>
-
-        </div>
-
-
-        <div class="card medium-card">
-
-            <div class="card-title">
-                Medium Risk
-            </div>
-
-            <div class="value medium-value">
-                {{ medium }}
-            </div>
-
-            <div class="card-description">
-                Indicators requiring attention
-            </div>
-
-        </div>
-
-
-        <div class="card low-card">
-
-            <div class="card-title">
-                Low Risk
-            </div>
-
-            <div class="value low-value">
-                {{ low }}
-            </div>
-
-            <div class="card-description">
-                Lower priority indicators
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- FEED STATISTICS -->
-
-    <section class="panel">
-
-        <div class="section-heading">
-
-            <h2>
-                Feed Statistics
-            </h2>
-
-            <span class="section-label">
-                Collection
-            </span>
-
-        </div>
-
-
-        <div class="summary-grid">
-
-            <div class="summary-item">
-
-                <span>
-                    Feeds Processed
-                </span>
-
-                <strong>
-                    {{ feed_count }}
-                </strong>
-
-            </div>
-
-
-            <div class="summary-item">
-
-                <span>
-                    Unique IOCs
-                </span>
-
-                <strong>
-                    {{ unique_iocs }}
-                </strong>
-
-            </div>
-
-
-            <div class="summary-item">
-
-                <span>
-                    Correlated IOCs
-                </span>
-
-                <strong>
-                    {{ correlated_count }}
-                </strong>
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- IOC TYPE SUMMARY -->
-
-    <section class="panel">
-
-        <div class="section-heading">
-
-            <h2>
-                IOC Type Summary
-            </h2>
-
-            <span class="section-label">
-                Classification
-            </span>
-
-        </div>
-
-
-        <div class="summary-grid">
-
-            <div class="summary-item">
-
-                <span>
-                    IP Addresses
-                </span>
-
-                <strong>
-                    {{ ip_count }}
-                </strong>
-
-            </div>
-
-
-            <div class="summary-item">
-
-                <span>
-                    Domains
-                </span>
-
-                <strong>
-                    {{ domain_count }}
-                </strong>
-
-            </div>
-
-
-            <div class="summary-item">
-
-                <span>
-                    URLs
-                </span>
-
-                <strong>
-                    {{ url_count }}
-                </strong>
-
-            </div>
-
-
-            <div class="summary-item">
-
-                <span>
-                    Hashes
-                </span>
-
-                <strong>
-                    {{ hash_count }}
-                </strong>
-
-            </div>
-
-
-            <div class="summary-item">
-
-                <span>
-                    Emails
-                </span>
-
-                <strong>
-                    {{ email_count }}
-                </strong>
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- BLOCKLISTS -->
-
-    <section class="panel">
-
-        <div class="section-heading">
-
-            <h2>
-                Blocklists & Reports
-            </h2>
-
-            <span class="section-label">
-                Export
-            </span>
-
-        </div>
-
-        <div class="downloads">
-
-            <a href="/download/ip_blocklist.txt">
-                Download IP Blocklist
-            </a>
-
-            <a href="/download/domain_blocklist.txt">
-                Download Domain Blocklist
-            </a>
-
-            <a href="/download/url_blocklist.txt">
-                Download URL Blocklist
-            </a>
-
-            <a href="/download/hash_blocklist.txt">
-                Download Hash Blocklist
-            </a>
-
-            <a href="/download/blocklist.csv">
-                Download CSV
-            </a>
-
-            <a href="/download/blocklist.json">
-                Download JSON
-            </a>
-
-            <a href="/download/ti_results.json">
-                Download TI Results
-            </a>
-
-            <a href="/download/threat_intelligence_report.html">
-                Download TI Report
-            </a>
-
-        </div>
-
-    </section>
-
-    <!-- FILTERS -->
-
-    <section class="panel">
-
-        <div class="section-heading">
-
-            <h2>
-                Indicator Search & Filters
-            </h2>
-
-            <span class="section-label">
-                Investigation
-            </span>
-
-        </div>
-
-
-        <form
-            method="GET"
-            action="/"
-            class="filter-form"
-        >
-
-            <div class="filter-group">
-
-                <label for="search">
-                    Search
-                </label>
-
-                <input
-                    type="text"
-                    id="search"
-                    name="search"
-                    value="{{ search }}"
-                    placeholder="IP, domain, URL, malware or source"
-                >
-
-            </div>
-
-
-            <div class="filter-group">
-
-                <label for="type">
-                    IOC Type
-                </label>
-
-                <select
-                    id="type"
-                    name="type"
-                >
-
-                    <option
-                        value="ALL"
-                        {% if selected_type == "ALL" %}
-                        selected
-                        {% endif %}
-                    >
-                        All Types
-                    </option>
-
-                    <option
-                        value="IP"
-                        {% if selected_type == "IP" %}
-                        selected
-                        {% endif %}
-                    >
-                        IP
-                    </option>
-
-                    <option
-                        value="DOMAIN"
-                        {% if selected_type == "DOMAIN" %}
-                        selected
-                        {% endif %}
-                    >
-                        Domain
-                    </option>
-
-                    <option
-                        value="URL"
-                        {% if selected_type == "URL" %}
-                        selected
-                        {% endif %}
-                    >
-                        URL
-                    </option>
-
-                    <option
-                        value="MD5"
-                        {% if selected_type == "MD5" %}
-                        selected
-                        {% endif %}
-                    >
-                        MD5
-                    </option>
-
-                    <option
-                        value="SHA1"
-                        {% if selected_type == "SHA1" %}
-                        selected
-                        {% endif %}
-                    >
-                        SHA1
-                    </option>
-
-                    <option
-                        value="SHA256"
-                        {% if selected_type == "SHA256" %}
-                        selected
-                        {% endif %}
-                    >
-                        SHA256
-                    </option>
-
-                    <option
-                        value="EMAIL"
-                        {% if selected_type == "EMAIL" %}
-                        selected
-                        {% endif %}
-                    >
-                        Email
-                    </option>
-
-                </select>
-
-            </div>
-
-
-            <div class="filter-group">
-
-                <label for="risk">
-                    Risk Level
-                </label>
-
-                <select
-                    id="risk"
-                    name="risk"
-                >
-
-                    <option
-                        value="ALL"
-                        {% if selected_risk == "ALL" %}
-                        selected
-                        {% endif %}
-                    >
-                        All Risk Levels
-                    </option>
-
-                    <option
-                        value="HIGH"
-                        {% if selected_risk == "HIGH" %}
-                        selected
-                        {% endif %}
-                    >
-                        High
-                    </option>
-
-                    <option
-                        value="MEDIUM"
-                        {% if selected_risk == "MEDIUM" %}
-                        selected
-                        {% endif %}
-                    >
-                        Medium
-                    </option>
-
-                    <option
-                        value="LOW"
-                        {% if selected_risk == "LOW" %}
-                        selected
-                        {% endif %}
-                    >
-                        Low
-                    </option>
-
-                </select>
-
-            </div>
-
-
-            <div class="filter-actions">
-
-                <button
-                    type="submit"
-                    class="filter-button"
-                >
-                    Apply Filters
-                </button>
-
-                <a
-                    href="/"
-                    class="clear-button"
-                >
-                    Clear
-                </a>
-
-            </div>
-
-        </form>
-
-    </section>
-
-
-    <!-- INDICATORS -->
-
-    <section class="panel">
-
-        <div class="section-heading">
-
-            <h2>
-                Threat Indicators
-            </h2>
-
-            <span class="section-label">
-                Latest Results
-            </span>
-
-        </div>
-
-
-        <div class="results-info">
-
-            <span>
-
-                Showing
-                <strong>
-                    {{ start_index }}
-                </strong>
-                -
-                <strong>
-                    {{ end_index }}
-                </strong>
-
-                of
-                <strong>
-                    {{ total_filtered }}
-                </strong>
-
-                matching indicators
-
-            </span>
-
-            <span>
-                Page
-                <strong>
-                    {{ page }}
-                </strong>
-                of
-                <strong>
-                    {{ total_pages }}
-                </strong>
-            </span>
-
-        </div>
-
-
-        {% if results %}
-
-        <div class="table-container">
-
-            <table>
-
-                <thead>
-
-                    <tr>
-
-                        <th>
-                            Indicator
-                        </th>
-
-                        <th>
-                            Type
-                        </th>
-
-                        <th>
-                            Source
-                        </th>
-
-                        <th>
-                            Sources
-                        </th>
-
-                        <th>
-                            Risk Score
-                        </th>
-
-                        <th>
-                            Risk Level
-                        </th>
-
-                        <th>
-                            Malware
-                        </th>
-
-                        <th>
-                            Risk Reason
-                        </th>
-
-                    </tr>
-
-                </thead>
-
-
-                <tbody>
-
-                    {% for item in results %}
-
-                    <tr>
-
-                        <td class="indicator-cell">
-                            {{ item.indicator }}
-                        </td>
-
-
-                        <td>
-
-                            <span class="type-badge">
-
-                                {{ item.type }}
-
-                            </span>
-
-                        </td>
-
-
-                        <td>
-
-                            {{ item.sources | join(", ") }}
-
-                        </td>
-
-
-                        <td class="center">
-
-                            {{ item.source_count }}
-
-                        </td>
-
-
-                        <td class="center">
-
-                            {{ item.risk_score }}
-
-                        </td>
-
-
-                        <td>
-
-                            {% if item.risk_level == "HIGH" %}
-
-                            <span class="risk high">
-                                HIGH
-                            </span>
-
-                            {% elif item.risk_level == "MEDIUM" %}
-
-                            <span class="risk medium">
-                                MEDIUM
-                            </span>
-
-                            {% else %}
-
-                            <span class="risk low">
-                                LOW
-                            </span>
-
-                            {% endif %}
-
-                        </td>
-
-
-                        <td>
-
-                            {% if item.malware %}
-
-                                {{ item.malware }}
-
-                            {% else %}
-
-                                -
-
-                            {% endif %}
-
-                        </td>
-
-
-                        <td class="reason-cell">
-
-                            {% if item.risk_reasons %}
-
-                                {{ item.risk_reasons | join("; ") }}
-
-                            {% else %}
-
-                                No additional information
-
-                            {% endif %}
-
-                        </td>
-
-                    </tr>
-
-                    {% endfor %}
-
-                </tbody>
-
-            </table>
-
-        </div>
-
-
-        <!-- PAGINATION -->
-
-        <div class="pagination">
-
-            {% if page > 1 %}
-
-            <a
-                href="?search={{ search | urlencode }}&type={{ selected_type }}&risk={{ selected_risk }}&page={{ page - 1 }}"
-                class="page-button"
-            >
-                ← Previous
-            </a>
-
-            {% endif %}
-
-
-            <span class="page-number">
-                Page {{ page }} / {{ total_pages }}
-            </span>
-
-
-            {% if page < total_pages %}
-
-            <a
-                href="?search={{ search | urlencode }}&type={{ selected_type }}&risk={{ selected_risk }}&page={{ page + 1 }}"
-                class="page-button"
-            >
-                Next →
-            </a>
-
-            {% endif %}
-
-        </div>
-
-        {% else %}
-
-        <div class="empty-state">
-
-            <h3>
-                No indicators found
-            </h3>
-
-            <p>
-                Try changing the search or filter values.
-            </p>
-
-        </div>
-
-        {% endif %}
-
-    </section>
-
-
-    <!-- WORKFLOW -->
-
-    <section class="panel">
-
-        <div class="section-heading">
-
-            <h2>
-                Processing Workflow
-            </h2>
-
-            <span class="section-label">
-                Architecture
-            </span>
-
-        </div>
-
-
-        <div class="workflow">
-
-            <div class="workflow-step">
-                Feed Collection
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="workflow-step">
-                IOC Parsing
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="workflow-step">
-                Validation
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="workflow-step">
-                Normalization
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="workflow-step">
-                Correlation
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="workflow-step">
-                Risk Scoring
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="workflow-step">
-                Blocklists
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- FOOTER -->
-
-    <footer>
-
-        <p>
-            Threat Intelligence Aggregator
-            <span>|</span>
-            Non-AI
-            <span>|</span>
-            Internship Project
-        </p>
-
-    </footer>
-
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <nav class="pager" aria-label="Pagination">
+    {% if page > 1 %}<a class="btn" href="{{ query(page=1) }}#explorer">&laquo;</a><a class="btn" href="{{ query(page=page-1) }}#explorer">&lsaquo; Prev</a>{% endif %}
+    <span class="page-now">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}<a class="btn" href="{{ query(page=page+1) }}#explorer">Next &rsaquo;</a><a class="btn" href="{{ query(page=total_pages) }}#explorer">&raquo;</a>{% endif %}
+  </nav>
+  {% else %}
+  <div class="empty-state"><b>No indicators match these filters.</b><p>Try clearing the search or lowering the minimum feed count.</p></div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Downloads &amp; live feeds</h2>
+  <div class="dl-grid">
+    {% for f in files %}<a class="dl" href="{{ url_for('download_file', filename=f) }}"><b>{{ f }}</b></a>{% endfor %}
+  </div>
+  <h3>Live External Dynamic Lists <span class="hint inline">plug straight into a firewall</span></h3>
+  <div class="edl">
+    {% for k in ['ip','cidr','domain','url','hash'] %}<a href="/feeds/{{ k }}.txt?min_score=60"><code>/feeds/{{ k }}.txt?min_score=60</code></a>{% endfor %}
+  </div>
+  <p class="hint">REST API: <code>/api/iocs</code> &middot; <code>/api/lookup?q=</code> &middot; <code>/api/summary</code> &middot; <code>/api/status</code> &middot; <code>/health</code></p>
+</section>
+
+<section class="panel">
+  <h2>How it works</h2>
+  <div class="flow">
+    <div><b>1 Collect</b><span>Parallel downloads, retries, cache &amp; stale fallback</span></div>
+    <div><b>2 Parse</b><span>CSV · TXT · JSON · STIX 2.x · TAXII · defang-aware</span></div>
+    <div><b>3 Normalize</b><span>Validate, de-duplicate, derive hosts from URLs</span></div>
+    <div><b>4 Correlate</b><span>Independent-source matching, CIDR range hits</span></div>
+    <div><b>5 Score</b><span>Explainable 0–100 rules, recency &amp; reputation</span></div>
+    <div><b>6 Export</b><span>ipset · hosts · RPZ · Suricata · STIX · CSV · JSON</span></div>
+  </div>
+</section>
+
+{% endif %}
+
+<footer class="foot">Defensive security project &middot; data from public OSINT feeds &middot; scoring is deterministic and explainable.</footer>
 </div>
-
+<script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
-
 </html>

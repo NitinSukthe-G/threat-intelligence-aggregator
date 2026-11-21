@@ -1,0 +1,37 @@
+[
+    {
+        "indicator": "192.0.2.10",
+        "type": "IP",
+        "source": "Correlation Test Feed A",
+        "category": "test",
+        "confidence": 80
+    },
+    {
+        "indicator": "192.0.2.10",
+        "type": "IP",
+        "source": "Correlation Test Feed B",
+        "category": "test",
+        "confidence": 90
+    },
+    {
+        "indicator": "192.0.2.10",
+        "type": "IP",
+        "source": "Correlation Test Feed C",
+        "category": "test",
+        "confidence": 95
+    },
+    {
+        "indicator": "example-test.com",
+        "type": "DOMAIN",
+        "source": "Correlation Test Feed A",
+        "category": "test",
+        "confidence": 70
+    },
+    {
+        "indicator": "example-test.com",
+        "type": "DOMAIN",
+        "source": "Correlation Test Feed B",
+        "category": "test",
+        "confidence": 75
+    }
+]

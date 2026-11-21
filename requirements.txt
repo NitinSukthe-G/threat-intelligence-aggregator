@@ -1,5 +1,5 @@
-Flask
-requests
-pandas
-python-dotenv
-gunicorn
+Flask>=3.0,<4
+requests>=2.31,<3
+python-dotenv>=1.0,<2
+gunicorn>=22,<27
+pytest>=8,<9

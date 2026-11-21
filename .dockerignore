@@ -1,0 +1,13 @@
+venv/
+.git/
+__pycache__/
+.pytest_cache/
+.env
+data/raw/*.feed
+screenshots/
+*.pdf
+docs/
+*.mp4
+resume.txt
+Links-thre.txt
+tests/

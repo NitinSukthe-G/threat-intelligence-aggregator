@@ -1,0 +1,229 @@
+{
+  "summary": {
+    "generated_at": "2026-11-21T16:53:20+00:00",
+    "duration_seconds": 15.24,
+    "feeds_configured": 12,
+    "feeds_ok": 10,
+    "feeds_failed": 0,
+    "feeds_skipped": 2,
+    "raw_iocs": 221219,
+    "unique_iocs": 61857,
+    "duplicates_removed": 159362,
+    "allowlist_dropped": {
+      "corroboration-only, no match": 145249
+    },
+    "range_matches": 986,
+    "correlated_iocs": 1363,
+    "max_independent_sources": 3,
+    "by_risk": {
+      "HIGH": 1083,
+      "MEDIUM": 8013,
+      "LOW": 52761
+    },
+    "by_type": {
+      "URL": 1192,
+      "IP": 54660,
+      "DOMAIN": 1177,
+      "SHA1": 913,
+      "MD5": 986,
+      "SHA256": 1177,
+      "CIDR": 1752
+    },
+    "stored_iocs": 11096,
+    "blocklists": {
+      "counts": {
+        "ips": 1899,
+        "cidrs": 1752,
+        "domains": 1177,
+        "urls": 1192,
+        "hashes": 3076,
+        "emails": 0
+      },
+      "min_score": 35,
+      "firewall_networks": 2477,
+      "selected": 9096
+    }
+  },
+  "feeds": [
+    {
+      "name": "Feodo Tracker",
+      "description": "abuse.ch botnet C2 IP addresses",
+      "kind": "remote",
+      "url": "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv",
+      "weight": 15,
+      "status": "fresh",
+      "records": 7980,
+      "error": "",
+      "seconds": 0.72,
+      "bytes": 623072,
+      "types": {
+        "IP": 7980
+      }
+    },
+    {
+      "name": "Phishunt",
+      "description": "Phishing URLs and domains, cross-checked by multiple engines",
+      "kind": "remote",
+      "url": "https://phishunt.io/feed.csv",
+      "weight": 9,
+      "status": "fresh",
+      "records": 1808,
+      "error": "",
+      "seconds": 0.88,
+      "bytes": 375132,
+      "types": {
+        "URL": 904,
+        "DOMAIN": 904
+      }
+    },
+    {
+      "name": "OpenPhish",
+      "description": "OpenPhish community phishing URL feed",
+      "kind": "remote",
+      "url": "https://openphish.com/feed.txt",
+      "weight": 10,
+      "status": "fresh",
+      "records": 300,
+      "error": "",
+      "seconds": 1.37,
+      "bytes": 13629,
+      "types": {
+        "URL": 300
+      }
+    },
+    {
+      "name": "CINS Army",
+      "description": "CINS Score list of hostile IP addresses",
+      "kind": "remote",
+      "url": "https://cinsscore.com/list/ci-badguys.txt",
+      "weight": 8,
+      "status": "fresh",
+      "records": 15000,
+      "error": "",
+      "seconds": 3.28,
+      "bytes": 213475,
+      "types": {
+        "IP": 15000
+      }
+    },
+    {
+      "name": "Blocklist.de",
+      "description": "IPs reported for SSH/mail/web attacks",
+      "kind": "remote",
+      "url": "https://lists.blocklist.de/lists/all.txt",
+      "weight": 6,
+      "status": "fresh",
+      "records": 24606,
+      "error": "",
+      "seconds": 1.94,
+      "bytes": 353738,
+      "types": {
+        "IP": 24606
+      }
+    },
+    {
+      "name": "ET Compromised",
+      "description": "Emerging Threats known compromised hosts",
+      "kind": "remote",
+      "url": "https://rules.emergingthreats.net/blockrules/compromised-ips.txt",
+      "weight": 8,
+      "status": "fresh",
+      "records": 596,
+      "error": "",
+      "seconds": 1.42,
+      "bytes": 8455,
+      "types": {
+        "IP": 596
+      }
+    },
+    {
+      "name": "IPsum",
+      "description": "IPs that appear on 3+ public blacklists",
+      "kind": "remote",
+      "url": "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt",
+      "weight": 7,
+      "status": "fresh",
+      "records": 19549,
+      "error": "",
+      "seconds": 4.31,
+      "bytes": 2260306,
+      "types": {
+        "IP": 19549
+      }
+    },
+    {
+      "name": "Spamhaus DROP",
+      "description": "Netblocks hijacked or leased by criminal operations",
+      "kind": "remote",
+      "url": "https://www.spamhaus.org/drop/drop.txt",
+      "weight": 12,
+      "status": "fresh",
+      "records": 1753,
+      "error": "",
+      "seconds": 0.82,
+      "bytes": 48723,
+      "types": {
+        "CIDR": 1753
+      }
+    },
+    {
+      "name": "Loki Hash IOCs",
+      "description": "Known-evil file hashes (MD5/SHA1/SHA256)",
+      "kind": "remote",
+      "url": "https://raw.githubusercontent.com/Neo23x0/signature-base/master/iocs/hash-iocs.txt",
+      "weight": 12,
+      "status": "fresh",
+      "records": 3247,
+      "error": "",
+      "seconds": 0.74,
+      "bytes": 471094,
+      "types": {
+        "SHA256": 1262,
+        "MD5": 1039,
+        "SHA1": 946
+      }
+    },
+    {
+      "name": "URLhaus",
+      "description": "abuse.ch malware distribution URLs (needs free Auth-Key)",
+      "kind": "remote",
+      "url": "https://urlhaus-api.abuse.ch/v2/files/exports/***/recent.csv",
+      "weight": 14,
+      "status": "skipped",
+      "records": 0,
+      "error": "ABUSECH_AUTH_KEY not configured",
+      "seconds": 0.01,
+      "bytes": 0,
+      "types": {}
+    },
+    {
+      "name": "ThreatFox",
+      "description": "abuse.ch IOCs tagged with malware families (needs free Auth-Key)",
+      "kind": "remote",
+      "url": "https://threatfox-api.abuse.ch/api/v1/",
+      "weight": 14,
+      "status": "skipped",
+      "records": 0,
+      "error": "ABUSECH_AUTH_KEY not configured",
+      "seconds": 0.08,
+      "bytes": 0,
+      "types": {}
+    },
+    {
+      "name": "Phishing.Army",
+      "description": "Aggregated phishing domains (used to corroborate other feeds)",
+      "kind": "remote",
+      "url": "https://phishing.army/download/phishing_army_blocklist.txt",
+      "weight": 6,
+      "status": "fresh",
+      "records": 146380,
+      "error": "",
+      "seconds": 5.32,
+      "bytes": 3175335,
+      "types": {
+        "DOMAIN": 146380
+      },
+      "unmatched_dropped": 145249
+    }
+  ]
+}

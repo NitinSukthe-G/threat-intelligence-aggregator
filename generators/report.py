@@ -1,787 +1,144 @@
-from datetime import datetime
+"""Self-contained HTML threat report. Every feed-supplied value is escaped."""
+
+from collections import Counter
+from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 
-
-def generate_threat_report(iocs, output_path):
-    """
-    Generate an HTML Threat Intelligence report
-    from processed IOC records.
-    """
-
-    output_path = Path(output_path)
-
-    total_iocs = len(iocs)
-
-    high_count = sum(
-        1
-        for item in iocs
-        if item.get("risk_level") == "HIGH"
-    )
-
-    medium_count = sum(
-        1
-        for item in iocs
-        if item.get("risk_level") == "MEDIUM"
-    )
-
-    low_count = sum(
-        1
-        for item in iocs
-        if item.get("risk_level") == "LOW"
-    )
-
-    ip_count = sum(
-        1
-        for item in iocs
-        if item.get("type") == "IP"
-    )
-
-    domain_count = sum(
-        1
-        for item in iocs
-        if item.get("type") == "DOMAIN"
-    )
-
-    url_count = sum(
-        1
-        for item in iocs
-        if item.get("type") == "URL"
-    )
-
-    hash_count = sum(
-        1
-        for item in iocs
-        if item.get("type") in {
-            "MD5",
-            "SHA1",
-            "SHA256"
-        }
-    )
-
-    email_count = sum(
-        1
-        for item in iocs
-        if item.get("type") == "EMAIL"
-    )
-
-    correlated = [
-        item
-        for item in iocs
-        if item.get("source_count", 0) >= 2
-    ]
-
-    sources = set()
-
-    for item in iocs:
-        for source in item.get(
-            "sources",
-            []
-        ):
-            sources.add(source)
-
-    feed_count = len(sources)
-
-    generated_time = datetime.now().strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-    risk_rows = ""
-
-    for item in sorted(
-        iocs,
-        key=lambda x: x.get(
-            "risk_score",
-            0
-        ),
-        reverse=True
-    )[:50]:
-
-        indicator = item.get(
-            "indicator",
-            ""
-        )
-
-        ioc_type = item.get(
-            "type",
-            ""
-        )
-
-        source_text = ", ".join(
-            item.get(
-                "sources",
-                []
-            )
-        )
-
-        source_count = item.get(
-            "source_count",
-            0
-        )
-
-        risk_score = item.get(
-            "risk_score",
-            0
-        )
-
-        risk_level = item.get(
-            "risk_level",
-            ""
-        )
-
-        malware = item.get(
-            "malware",
-            ""
-        )
-
-        reasons = "; ".join(
-            item.get(
-                "risk_reasons",
-                []
-            )
-        )
-
-        risk_rows += f"""
-        <tr>
-            <td class="indicator">{indicator}</td>
-            <td>{ioc_type}</td>
-            <td>{source_text}</td>
-            <td>{source_count}</td>
-            <td>{risk_score}</td>
-            <td>
-                <span class="risk {risk_level.lower()}">
-                    {risk_level}
-                </span>
-            </td>
-            <td>{malware or "-"}</td>
-            <td>{reasons or "-"}</td>
-        </tr>
-        """
-
-    correlation_rows = ""
-
-    for item in sorted(
-        correlated,
-        key=lambda x: x.get(
-            "source_count",
-            0
-        ),
-        reverse=True
-    )[:25]:
-
-        correlation_rows += f"""
-        <tr>
-            <td class="indicator">
-                {item.get("indicator", "")}
-            </td>
-
-            <td>
-                {item.get("type", "")}
-            </td>
-
-            <td>
-                {", ".join(
-                    item.get("sources", [])
-                )}
-            </td>
-
-            <td>
-                {item.get("source_count", 0)}
-            </td>
-
-            <td>
-                {item.get(
-                    "correlation_level",
-                    "-"
-                )}
-            </td>
-
-            <td>
-                {item.get(
-                    "risk_level",
-                    "-"
-                )}
-            </td>
-        </tr>
-        """
-
-    if not correlation_rows:
-        correlation_rows = """
-        <tr>
-            <td colspan="6" class="empty">
-                No cross-feed correlated indicators
-                were found in the current real-feed run.
-            </td>
-        </tr>
-        """
-
-    html = f"""
-<!DOCTYPE html>
-
-<html lang="en">
-
-<head>
-
-<meta charset="UTF-8">
-
-<meta name="viewport"
-      content="width=device-width, initial-scale=1.0">
-
-<title>
-Threat Intelligence Aggregator Report
-</title>
-
-<style>
-
-* {{
-    box-sizing: border-box;
-}}
-
-body {{
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f4f6f8;
-    color: #172033;
-}}
-
-.container {{
-    width: 92%;
-    max-width: 1400px;
-    margin: 35px auto;
-}}
-
-.header {{
-    background: #172033;
-    color: white;
-    padding: 35px;
-    border-radius: 12px;
-    margin-bottom: 25px;
-}}
-
-.header h1 {{
-    margin: 0 0 10px;
-    font-size: 32px;
-}}
-
-.header p {{
-    margin: 4px 0;
-    color: #d0d5dd;
-}}
-
-.grid {{
-    display: grid;
-    grid-template-columns:
-        repeat(4, 1fr);
-    gap: 15px;
-    margin-bottom: 25px;
-}}
-
-.card {{
-    background: white;
-    padding: 22px;
-    border-radius: 10px;
-    border: 1px solid #eaecf0;
-}}
-
-.card .label {{
-    color: #667085;
-    font-size: 13px;
-    margin-bottom: 8px;
-}}
-
-.card .number {{
-    font-size: 30px;
-    font-weight: bold;
-}}
-
-.section {{
-    background: white;
-    padding: 25px;
-    border-radius: 10px;
-    border: 1px solid #eaecf0;
-    margin-bottom: 25px;
-}}
-
-.section h2 {{
-    margin-top: 0;
-    font-size: 21px;
-}}
-
-table {{
-    width: 100%;
-    border-collapse: collapse;
-}}
-
-th,
-td {{
-    padding: 10px;
-    text-align: left;
-    border-bottom: 1px solid #eaecf0;
-    font-size: 12px;
-    vertical-align: top;
-}}
-
-th {{
-    background: #f8fafc;
-}}
-
-.indicator {{
-    font-family: Consolas, monospace;
-    font-weight: 600;
-}}
-
-.risk {{
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 5px;
-    font-weight: bold;
-    font-size: 11px;
-}}
-
-.risk.high {{
-    background: #fee4e2;
-    color: #b42318;
-}}
-
-.risk.medium {{
-    background: #fef0c7;
-    color: #b54708;
-}}
-
-.risk.low {{
-    background: #dcfae6;
-    color: #027a48;
-}}
-
-.summary {{
-    line-height: 1.7;
-    color: #475467;
-}}
-
-.empty {{
-    text-align: center;
-    color: #667085;
-    padding: 25px;
-}}
-
-.footer {{
-    text-align: center;
-    color: #667085;
-    font-size: 12px;
-    margin-top: 35px;
-}}
-
-@media (max-width: 900px) {{
-
-    .grid {{
-        grid-template-columns:
-            repeat(2, 1fr);
-    }}
-
-}}
-
-@media (max-width: 600px) {{
-
-    .grid {{
-        grid-template-columns: 1fr;
-    }}
-
-}}
-
-</style>
-
-</head>
-
-
-<body>
-
-<div class="container">
-
-
-<div class="header">
-
-    <h1>
-        Threat Intelligence Aggregator Report
-    </h1>
-
-    <p>
-        Non-AI Threat Intelligence Collection,
-        Normalization, Correlation and Risk Analysis
-    </p>
-
-    <p>
-        Generated: {generated_time}
-    </p>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        1. Executive Summary
-    </h2>
-
-    <div class="summary">
-
-        The Threat Intelligence Aggregator collected,
-        parsed, validated, normalized and analyzed
-        indicators from {feed_count} threat intelligence
-        source(s).
-
-        The current dataset contains
-        <strong>{total_iocs}</strong>
-        unique indicators.
-
-        The system classified the indicators by IOC type,
-        calculated explainable risk scores and generated
-        blocklists for actionable defensive use.
-
-    </div>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        2. Feed Statistics
-    </h2>
-
-    <div class="grid">
-
-        <div class="card">
-            <div class="label">
-                Feeds Processed
-            </div>
-
-            <div class="number">
-                {feed_count}
-            </div>
-        </div>
-
-
-        <div class="card">
-            <div class="label">
-                Unique IOCs
-            </div>
-
-            <div class="number">
-                {total_iocs}
-            </div>
-        </div>
-
-
-        <div class="card">
-            <div class="label">
-                Correlated IOCs
-            </div>
-
-            <div class="number">
-                {len(correlated)}
-            </div>
-        </div>
-
-
-        <div class="card">
-            <div class="label">
-                Generated
-            </div>
-
-            <div class="number">
-                Report
-            </div>
-        </div>
-
-    </div>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        3. Risk Distribution
-    </h2>
-
-    <div class="grid">
-
-        <div class="card">
-            <div class="label">
-                HIGH
-            </div>
-
-            <div class="number">
-                {high_count}
-            </div>
-        </div>
-
-
-        <div class="card">
-            <div class="label">
-                MEDIUM
-            </div>
-
-            <div class="number">
-                {medium_count}
-            </div>
-        </div>
-
-
-        <div class="card">
-            <div class="label">
-                LOW
-            </div>
-
-            <div class="number">
-                {low_count}
-            </div>
-        </div>
-
-    </div>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        4. IOC Type Distribution
-    </h2>
-
-    <table>
-
-        <thead>
-
-            <tr>
-                <th>IOC Type</th>
-                <th>Count</th>
-            </tr>
-
-        </thead>
-
-        <tbody>
-
-            <tr>
-                <td>IP Address</td>
-                <td>{ip_count}</td>
-            </tr>
-
-            <tr>
-                <td>Domain</td>
-                <td>{domain_count}</td>
-            </tr>
-
-            <tr>
-                <td>URL</td>
-                <td>{url_count}</td>
-            </tr>
-
-            <tr>
-                <td>Hash</td>
-                <td>{hash_count}</td>
-            </tr>
-
-            <tr>
-                <td>Email</td>
-                <td>{email_count}</td>
-            </tr>
-
-        </tbody>
-
-    </table>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        5. Correlation Results
-    </h2>
-
-    <table>
-
-        <thead>
-
-            <tr>
-                <th>Indicator</th>
-                <th>Type</th>
-                <th>Sources</th>
-                <th>Source Count</th>
-                <th>Correlation</th>
-                <th>Risk</th>
-            </tr>
-
-        </thead>
-
-        <tbody>
-
-            {correlation_rows}
-
-        </tbody>
-
-    </table>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        6. Highest-Risk Indicators
-    </h2>
-
-    <table>
-
-        <thead>
-
-            <tr>
-                <th>Indicator</th>
-                <th>Type</th>
-                <th>Source</th>
-                <th>Sources</th>
-                <th>Score</th>
-                <th>Risk</th>
-                <th>Malware</th>
-                <th>Reason</th>
-            </tr>
-
-        </thead>
-
-        <tbody>
-
-            {risk_rows}
-
-        </tbody>
-
-    </table>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        7. Blocklist Generation
-    </h2>
-
-    <div class="summary">
-
-        The system generated category-based blocklists
-        from medium- and high-risk indicators.
-
-        These outputs include IP, domain, URL and
-        hash blocklists together with CSV and JSON
-        machine-readable datasets.
-
-    </div>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        8. Processing Methodology
-    </h2>
-
-    <div class="summary">
-
-        <strong>Feed Collection</strong> →
-        Download threat intelligence data.
-
-        <br>
-
-        <strong>IOC Parsing</strong> →
-        Extract IP addresses, domains, URLs,
-        hashes and email indicators.
-
-        <br>
-
-        <strong>Validation</strong> →
-        Remove malformed indicators.
-
-        <br>
-
-        <strong>Normalization</strong> →
-        Standardize indicators and remove duplicates.
-
-        <br>
-
-        <strong>Correlation</strong> →
-        Identify indicators reported by multiple sources.
-
-        <br>
-
-        <strong>Risk Scoring</strong> →
-        Assign explainable risk levels based on
-        source count, indicator type, confidence
-        and threat category.
-
-        <br>
-
-        <strong>Blocklist Generation</strong> →
-        Export actionable defensive lists.
-
-    </div>
-
-</div>
-
-
-<div class="section">
-
-    <h2>
-        9. Conclusion
-    </h2>
-
-    <div class="summary">
-
-        The Threat Intelligence Aggregator provides a
-        non-AI defensive workflow for collecting and
-        standardizing threat intelligence from multiple
-        feeds.
-
-        It reduces manual feed processing by automating
-        IOC parsing, validation, normalization,
-        correlation, risk prioritization and blocklist
-        generation.
-
-    </div>
-
-</div>
-
-
-<div class="footer">
-
-    Threat Intelligence Aggregator |
-    Non-AI |
-    Internship Project
-
-</div>
-
-
-</div>
-
-</body>
-
-</html>
+CSS = """
+:root{--bg:#0b1020;--panel:#141b2f;--line:#26304d;--text:#e6ebf7;--muted:#8d99b8;
+--high:#ff5d6c;--med:#ffb347;--low:#4ecb8d;--accent:#6aa8ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);
+font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 60px}
+h1{margin:0;font-size:30px;letter-spacing:-.5px}h2{margin:34px 0 12px;font-size:18px;
+border-left:4px solid var(--accent);padding-left:10px}
+.sub{color:var(--muted);margin:6px 0 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card b{display:block;font-size:28px}.card span{color:var(--muted);font-size:13px}
+.high b{color:var(--high)}.med b{color:var(--med)}.low b{color:var(--low)}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
+border-radius:12px;overflow:hidden;font-size:13.5px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;background:#101830}tr:last-child td{border:0}
+code{font-family:Consolas,monospace;overflow-wrap:anywhere;color:#cfe0ff}
+td:first-child{min-width:190px}
+.pill{padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600}
+.pill.HIGH{background:#ff5d6c22;color:var(--high)}.pill.MEDIUM{background:#ffb34722;color:var(--med)}
+.pill.LOW{background:#4ecb8d22;color:var(--low)}.pill.ok{background:#4ecb8d22;color:var(--low)}
+.pill.bad{background:#ff5d6c22;color:var(--high)}.pill.warn{background:#ffb34722;color:var(--med)}
+.bar{height:10px;border-radius:6px;background:#1d2744;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}.muted{color:var(--muted)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:800px){.two{grid-template-columns:1fr}}
+footer{margin-top:40px;color:var(--muted);font-size:12px}
 """
 
-    with open(
-        output_path,
-        "w",
-        encoding="utf-8"
-    ) as file:
 
-        file.write(html)
+def _e(value):
+    return escape(str(value if value is not None else ""), quote=True)
 
-    print()
-    print(
-        f"[+] Threat intelligence report generated:"
-    )
 
-    print(
-        f"[+] {output_path}"
-    )
+def _card(label, value, cls=""):
+    return f'<div class="card {cls}"><b>{_e(value)}</b><span>{_e(label)}</span></div>'
 
+
+def _bar(parts):
+    total = sum(v for _, v, _ in parts) or 1
+    cells = "".join(
+        f'<i style="width:{v / total * 100:.2f}%;background:{color}" title="{_e(n)}: {v:,}"></i>'
+        for n, v, color in parts if v)
+    return f'<div class="bar">{cells}</div>'
+
+
+def _ioc_rows(items, limit):
+    rows = []
+    for item in items[:limit]:
+        rows.append(
+            "<tr>"
+            f"<td><code>{_e(item.get('indicator'))}</code></td>"
+            f"<td>{_e(item.get('type'))}</td>"
+            f"<td>{_e(', '.join(item.get('sources', [])))}</td>"
+            f"<td>{_e(item.get('independent_count', item.get('source_count', 0)))}</td>"
+            f"<td>{_e(item.get('risk_score', 0))}</td>"
+            f"<td><span class='pill {_e(item.get('risk_level', 'LOW'))}'>{_e(item.get('risk_level', 'LOW'))}</span></td>"
+            f"<td class='muted'>{_e('; '.join(item.get('risk_reasons', [])[:3]))}</td>"
+            "</tr>")
+    return "".join(rows) or '<tr><td colspan="7" class="muted">No indicators in this category.</td></tr>'
+
+
+def build_report_html(iocs, summary=None, feeds=None):
+    summary = summary or {}
+    feeds = feeds or []
+    by_risk = summary.get("by_risk") or Counter(i.get("risk_level", "LOW") for i in iocs)
+    by_type = summary.get("by_type") or Counter(i.get("type", "") for i in iocs)
+    generated = summary.get("generated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    correlated = sorted(
+        (i for i in iocs if i.get("independent_count", i.get("source_count", 0)) >= 2),
+        key=lambda i: (-i.get("independent_count", 0), -i.get("risk_score", 0)))
+    top_high = [i for i in iocs if i.get("risk_level") == "HIGH"][:25]
+    malware = Counter(i["malware"] for i in iocs if i.get("malware")).most_common(10)
+    categories = Counter(i["category"] for i in iocs if i.get("category")).most_common(8)
+
+    feed_rows = "".join(
+        "<tr>"
+        f"<td>{_e(f['name'])}<div class='muted'>{_e(f.get('description', ''))}</div></td>"
+        f"<td><span class='pill {'ok' if f['status'] in ('fresh', 'cached') else 'warn' if f['status'] in ('stale', 'skipped') else 'bad'}'>{_e(f['status'])}</span></td>"
+        f"<td>{f.get('records', 0):,}</td>"
+        f"<td class='muted'>{_e(', '.join(f'{k}: {v:,}' for k, v in sorted((f.get('types') or {}).items())))}</td>"
+        f"<td class='muted'>{_e(f.get('error', ''))}</td></tr>"
+        for f in feeds) or '<tr><td colspan="5" class="muted">No feed information recorded.</td></tr>'
+
+    bl = (summary.get("blocklists") or {}).get("counts", {})
+    cards = "".join([
+        _card("Feeds processed", f"{summary.get('feeds_ok', 0)}/{summary.get('feeds_configured', len(feeds))}"),
+        _card("Raw indicators", f"{summary.get('raw_iocs', 0):,}"),
+        _card("Unique indicators", f"{summary.get('unique_iocs', len(iocs)):,}"),
+        _card("Cross-feed correlated", f"{summary.get('correlated_iocs', len(correlated)):,}"),
+        _card("HIGH risk", f"{by_risk.get('HIGH', 0):,}", "high"),
+        _card("MEDIUM risk", f"{by_risk.get('MEDIUM', 0):,}", "med"),
+        _card("LOW risk", f"{by_risk.get('LOW', 0):,}", "low"),
+        _card("Max independent sources", summary.get("max_independent_sources", 0)),
+    ])
+    bl_cards = "".join(_card(k.title(), f"{v:,}") for k, v in bl.items())
+    type_rows = "".join(f"<tr><td>{_e(k)}</td><td>{v:,}</td></tr>" for k, v in sorted(by_type.items()))
+    mal_rows = "".join(f"<tr><td>{_e(k)}</td><td>{v}</td></tr>" for k, v in malware) or \
+        '<tr><td class="muted" colspan="2">No malware family data.</td></tr>'
+    cat_rows = "".join(f"<tr><td>{_e(k)}</td><td>{v}</td></tr>" for k, v in categories) or \
+        '<tr><td class="muted" colspan="2">No category data.</td></tr>'
+    dropped = summary.get("allowlist_dropped") or {}
+    dropped_text = ", ".join(f"{k}: {v:,}" for k, v in dropped.items()) or "none"
+
+    head = "<th>Indicator</th><th>Type</th><th>Sources</th><th>Indep.</th><th>Score</th><th>Risk</th><th>Why</th>"
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Threat Intelligence Report</title><style>{CSS}</style></head>
+<body><div class="wrap">
+<h1>Threat Intelligence Report</h1>
+<p class="sub">Generated {_e(generated)} &middot; rule-based (non-AI) aggregation, correlation and scoring</p>
+<div class="grid">{cards}</div>
+<h2>Risk distribution</h2>
+{_bar([("HIGH", by_risk.get("HIGH", 0), "var(--high)"), ("MEDIUM", by_risk.get("MEDIUM", 0), "var(--med)"), ("LOW", by_risk.get("LOW", 0), "var(--low)")])}
+<h2>Feed health</h2>
+<table><tr><th>Feed</th><th>Status</th><th>Records</th><th>Types</th><th>Notes</th></tr>{feed_rows}</table>
+<h2>Cross-feed correlated indicators</h2>
+<p class="muted">Indicators confirmed by two or more <em>independent</em> feeds (aggregators are not double-counted).</p>
+<table><tr>{head}</tr>{_ioc_rows(correlated, 25)}</table>
+<h2>Highest-priority indicators</h2>
+<table><tr>{head}</tr>{_ioc_rows(top_high, 25)}</table>
+<div class="two"><div><h2>Indicator types</h2><table><tr><th>Type</th><th>Count</th></tr>{type_rows}</table></div>
+<div><h2>Malware families</h2><table><tr><th>Family</th><th>Indicators</th></tr>{mal_rows}</table>
+<h2>Threat categories</h2><table><tr><th>Category</th><th>Indicators</th></tr>{cat_rows}</table></div></div>
+<h2>Generated blocklists</h2><div class="grid">{bl_cards}</div>
+<footer>False-positive controls: allowlist/private-IP filter removed {_e(dropped_text)}.
+Scores combine independent corroboration, source reputation, indicator type, confidence, threat category and recency.</footer>
+</div></body></html>"""
+
+
+def generate_threat_report(iocs, output_path, summary=None, feeds=None):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(build_report_html(iocs, summary, feeds), encoding="utf-8")
+    print(f"[+] Threat report: {output_path}")
     return output_path

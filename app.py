@@ -1,402 +1,396 @@
+"""Flask dashboard + REST API for the Threat Intelligence Aggregator."""
+
+import csv
+import hmac
+import io
+import ipaddress
 import json
 import os
+import threading
+import time
+from urllib.parse import urlencode
 
 from flask import (
-    Flask,
-    render_template,
-    request,
-    send_from_directory,
+    Flask, Response, abort, jsonify, render_template, request, send_from_directory,
 )
 
-from config import OUTPUT_DATA_DIR
-from pipeline import run_pipeline
+import config
+import pipeline
+from core.normalizer import normalize_indicator
+from core.validator import detect_ioc_type
+from generators.blocklist import CSV_FIELDS, OUTPUT_FILES, _csv_row
 
+OUTPUT_DIR = config.OUTPUT_DATA_DIR
+PER_PAGE_CHOICES = (25, 50, 100)
+SORTS = {
+    "score": lambda i: (-i.get("risk_score", 0), i.get("indicator", "")),
+    "sources": lambda i: (-i.get("independent_count", 0), -i.get("risk_score", 0)),
+    "recent": lambda i: (str(i.get("last_online") or i.get("first_seen") or ""),),
+    "indicator": lambda i: (i.get("indicator", ""),),
+}
+TYPE_GROUPS = {"HASH": {"MD5", "SHA1", "SHA256"}}
 
 app = Flask(__name__)
+app.json.sort_keys = False
 
-ITEMS_PER_PAGE = 25
+_state = {"last_error": "", "last_started": 0.0, "last_finished": 0.0, "auto_checked": False}
+_state_lock = threading.Lock()
+_cache = {"mtime": None, "iocs": [], "index": {}, "summary": {}, "feeds": [], "summary_mtime": None}
 
 
-def load_results():
-    """
-    Load the latest processed IOC results.
-    """
+# --------------------------------------------------------------------------
+# Data access
+# --------------------------------------------------------------------------
 
-    result_file = OUTPUT_DATA_DIR / "ti_results.json"
-
-    if not result_file.exists():
-        return []
-
+def _read_json(path, default):
     try:
-        with open(
-            result_file,
-            "r",
-            encoding="utf-8",
-        ) as file:
-            data = json.load(file)
-
-        if isinstance(data, list):
-            return data
-
-        return []
-
-    except (
-        OSError,
-        json.JSONDecodeError,
-    ):
-        return []
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return default
 
 
-def ensure_results():
-    """
-    Generate results automatically when the deployed service
-    starts without an existing result file.
+def load_data():
+    """Return cached results, reloading only when the files change."""
+    results_path = OUTPUT_DIR / "ti_results.json"
+    summary_path = OUTPUT_DIR / "run_summary.json"
+    try:
+        mtime = results_path.stat().st_mtime
+    except OSError:
+        mtime = None
+    try:
+        summary_mtime = summary_path.stat().st_mtime
+    except OSError:
+        summary_mtime = None
 
-    This is useful because Render's free filesystem is
-    temporary across restarts/spin-downs.
-    """
+    if mtime != _cache["mtime"]:
+        iocs = _read_json(results_path, [])
+        iocs = iocs if isinstance(iocs, list) else []
+        _cache.update(mtime=mtime, iocs=iocs,
+                      index={(i.get("type"), i.get("indicator")): i for i in iocs})
+    if summary_mtime != _cache["summary_mtime"]:
+        document = _read_json(summary_path, {})
+        _cache.update(summary_mtime=summary_mtime,
+                      summary=document.get("summary", {}), feeds=document.get("feeds", []))
+    return _cache
 
-    result_file = OUTPUT_DATA_DIR / "ti_results.json"
 
-    if result_file.exists():
+def age_label():
+    hours = results_age_hours()
+    if hours == float("inf"):
+        return ""
+    if hours < 1 / 60:
+        return "just now"
+    if hours < 1:
+        return f"{int(hours * 60)} min ago"
+    if hours < 48:
+        return f"{hours:.1f} h ago"
+    return f"{int(hours // 24)} days ago"
+
+
+def results_age_hours():
+    mtime = _cache["mtime"] or 0
+    return (time.time() - mtime) / 3600 if mtime else float("inf")
+
+
+# --------------------------------------------------------------------------
+# Pipeline execution (background, cooldown-protected)
+# --------------------------------------------------------------------------
+
+def _run_in_background():
+    def worker():
+        with _state_lock:
+            _state["last_started"] = time.time()
+            _state["last_error"] = ""
+        try:
+            pipeline.run_pipeline()
+        except Exception as error:  # surfaced via /api/status
+            with _state_lock:
+                _state["last_error"] = f"{type(error).__name__}: {error}"
+        finally:
+            with _state_lock:
+                _state["last_finished"] = time.time()
+
+    threading.Thread(target=worker, name="pipeline-run", daemon=True).start()
+
+
+def cooldown_remaining():
+    if not _state["last_started"]:
+        return 0
+    return max(0, int(config.RUN_COOLDOWN_SECONDS - (time.time() - _state["last_started"])))
+
+
+def maybe_auto_refresh():
+    """First request after (re)start: build results if missing or stale."""
+    if _state["auto_checked"]:
         return
+    _state["auto_checked"] = True
+    load_data()
+    if not pipeline.is_running() and results_age_hours() > config.STALE_AFTER_HOURS:
+        _run_in_background()
 
+
+# --------------------------------------------------------------------------
+# Filtering
+# --------------------------------------------------------------------------
+
+def filter_iocs(iocs, args):
+    search = args.get("search", "").strip().lower()
+    ioc_type = args.get("type", "ALL").upper()
+    risk = args.get("risk", "ALL").upper()
+    source = args.get("source", "ALL")
     try:
-        print("[+] No existing TI results found.")
-        print("[+] Running initial threat intelligence pipeline...")
-        run_pipeline()
+        min_sources = max(1, int(args.get("min_sources", 1)))
+    except ValueError:
+        min_sources = 1
 
-    except Exception as error:
-        print(
-            f"[-] Initial pipeline execution failed: {error}"
-        )
+    allowed_types = TYPE_GROUPS.get(ioc_type, {ioc_type})
+    selected = []
+    for item in iocs:
+        if ioc_type != "ALL" and item.get("type") not in allowed_types:
+            continue
+        if risk != "ALL" and item.get("risk_level") != risk:
+            continue
+        if source != "ALL" and source not in item.get("sources", []):
+            continue
+        if item.get("independent_count", 1) < min_sources:
+            continue
+        if search:
+            haystack = " ".join([
+                item.get("indicator", ""), " ".join(item.get("sources", [])),
+                item.get("malware", ""), item.get("category", ""),
+                " ".join(item.get("tags", [])),
+            ]).lower()
+            if search not in haystack:
+                continue
+        selected.append(item)
+    selected.sort(key=SORTS.get(args.get("sort", "score"), SORTS["score"]))
+    if args.get("sort") == "recent":
+        selected.reverse()
+    return selected
 
 
-def calculate_dashboard_stats(results):
-    """
-    Calculate dashboard statistics.
-    """
+def _int_arg(name, default, low, high):
+    try:
+        return min(high, max(low, int(request.args.get(name, default))))
+    except ValueError:
+        return default
 
-    total_iocs = len(results)
 
-    high = sum(
-        1
-        for item in results
-        if item.get("risk_level") == "HIGH"
-    )
-
-    medium = sum(
-        1
-        for item in results
-        if item.get("risk_level") == "MEDIUM"
-    )
-
-    low = sum(
-        1
-        for item in results
-        if item.get("risk_level") == "LOW"
-    )
-
-    ip_count = sum(
-        1
-        for item in results
-        if item.get("type") == "IP"
-    )
-
-    domain_count = sum(
-        1
-        for item in results
-        if item.get("type") == "DOMAIN"
-    )
-
-    url_count = sum(
-        1
-        for item in results
-        if item.get("type") == "URL"
-    )
-
-    hash_count = sum(
-        1
-        for item in results
-        if item.get("type") in {
-            "MD5",
-            "SHA1",
-            "SHA256",
-        }
-    )
-
-    email_count = sum(
-        1
-        for item in results
-        if item.get("type") == "EMAIL"
-    )
-
-    feed_names = set()
-
-    for item in results:
-        for source in item.get(
-            "sources",
-            [],
-        ):
-            feed_names.add(source)
-
-    feed_count = len(feed_names)
-
-    correlated_count = sum(
-        1
-        for item in results
-        if item.get(
-            "source_count",
-            0,
-        ) >= 2
-    )
-
-    return {
-        "total_iocs": total_iocs,
-        "high": high,
-        "medium": medium,
-        "low": low,
-        "ip_count": ip_count,
-        "domain_count": domain_count,
-        "url_count": url_count,
-        "hash_count": hash_count,
-        "email_count": email_count,
-        "feed_count": feed_count,
-        "unique_iocs": total_iocs,
-        "correlated_count": correlated_count,
-    }
-
+# --------------------------------------------------------------------------
+# Pages
+# --------------------------------------------------------------------------
 
 @app.route("/")
 def dashboard():
-    """
-    Main dashboard with search, filtering and pagination.
-    """
+    maybe_auto_refresh()
+    data = load_data()
+    summary, feeds = data["summary"], data["feeds"]
+    matches = filter_iocs(data["iocs"], request.args)
 
-    ensure_results()
+    per_page = _int_arg("per_page", 25, 10, 100)
+    if per_page not in PER_PAGE_CHOICES:
+        per_page = 25
+    total_pages = max(1, -(-len(matches) // per_page))
+    page = min(_int_arg("page", 1, 1, 10 ** 6), total_pages)
+    start = (page - 1) * per_page
 
-    all_results = load_results()
+    def query(**overrides):
+        params = {k: v for k, v in request.args.items() if v not in ("", "ALL")}
+        params.update(overrides)
+        return "?" + urlencode({k: v for k, v in params.items() if v not in ("", None)})
 
-    stats = calculate_dashboard_stats(
-        all_results
-    )
-
-    search = request.args.get(
-        "search",
-        "",
-    ).strip().lower()
-
-    ioc_type = request.args.get(
-        "type",
-        "ALL",
-    ).upper()
-
-    risk = request.args.get(
-        "risk",
-        "ALL",
-    ).upper()
-
-    try:
-        page = int(
-            request.args.get(
-                "page",
-                1,
-            )
-        )
-
-    except ValueError:
-        page = 1
-
-    if page < 1:
-        page = 1
-
-    filtered_results = []
-
-    for item in all_results:
-
-        indicator = str(
-            item.get(
-                "indicator",
-                "",
-            )
-        ).lower()
-
-        current_type = str(
-            item.get(
-                "type",
-                "",
-            )
-        ).upper()
-
-        current_risk = str(
-            item.get(
-                "risk_level",
-                "",
-            )
-        ).upper()
-
-        source_text = " ".join(
-            item.get(
-                "sources",
-                [],
-            )
-        ).lower()
-
-        malware = str(
-            item.get(
-                "malware",
-                "",
-            )
-        ).lower()
-
-        if search:
-
-            searchable_text = (
-                indicator
-                + " "
-                + source_text
-                + " "
-                + malware
-            )
-
-            if search not in searchable_text:
-                continue
-
-        if (
-            ioc_type != "ALL"
-            and current_type != ioc_type
-        ):
-            continue
-
-        if (
-            risk != "ALL"
-            and current_risk != risk
-        ):
-            continue
-
-        filtered_results.append(item)
-
-    total_filtered = len(
-        filtered_results
-    )
-
-    total_pages = max(
-        1,
-        (
-            total_filtered
-            + ITEMS_PER_PAGE
-            - 1
-        )
-        // ITEMS_PER_PAGE,
-    )
-
-    if page > total_pages:
-        page = total_pages
-
-    start_index = (
-        page - 1
-    ) * ITEMS_PER_PAGE
-
-    end_index = (
-        start_index
-        + ITEMS_PER_PAGE
-    )
-
-    page_results = filtered_results[
-        start_index:end_index
-    ]
+    by_risk = summary.get("by_risk", {"HIGH": 0, "MEDIUM": 0, "LOW": 0})
+    by_type = summary.get("by_type", {})
+    feed_contrib = sorted(
+        ((f["name"], f.get("records", 0), f["status"]) for f in feeds),
+        key=lambda row: -row[1])
+    top_correlated = sorted(
+        (i for i in data["iocs"] if i.get("independent_count", 1) >= 2),
+        key=lambda i: (-i["independent_count"], -i["risk_score"]))[:8]
+    history = _read_json(OUTPUT_DIR / "history.json", [])
+    sources = sorted({s for f in feeds if f["status"] in {"fresh", "cached", "stale"}
+                      for s in [f["name"]]})
 
     return render_template(
         "index.html",
-        results=page_results,
-        **stats,
-        search=search,
-        selected_type=ioc_type,
-        selected_risk=risk,
-        page=page,
-        total_pages=total_pages,
-        total_filtered=total_filtered,
-        start_index=(
-            start_index + 1
-            if total_filtered
-            else 0
-        ),
-        end_index=min(
-            end_index,
-            total_filtered,
-        ),
+        results=matches[start:start + per_page], total=len(matches),
+        page=page, total_pages=total_pages, per_page=per_page,
+        start_index=start + 1 if matches else 0, end_index=min(start + per_page, len(matches)),
+        summary=summary, feeds=feeds, by_risk=by_risk, by_type=by_type,
+        feed_contrib=feed_contrib, top_correlated=top_correlated, history=history[-20:],
+        sources=sources, args=request.args, query=query,
+        files=[f for f in OUTPUT_FILES if (OUTPUT_DIR / f).exists()],
+        running=pipeline.is_running(), cooldown=cooldown_remaining(),
+        needs_token=bool(config.ADMIN_TOKEN), has_data=bool(data["iocs"]),
+        blocklists=summary.get("blocklists", {}),
+        age_label=age_label(),
     )
 
 
-@app.route("/run-pipeline")
-def run_pipeline_route():
-    """
-    Run the TI pipeline from the dashboard.
-    """
-
-    try:
-        run_pipeline()
-
-    except Exception as error:
-        print(
-            f"[-] Pipeline error: {error}"
-        )
-
-    return dashboard()
+@app.route("/report")
+def report():
+    path = OUTPUT_DIR / "threat_intelligence_report.html"
+    if not path.exists():
+        abort(404)
+    return Response(path.read_text(encoding="utf-8"), mimetype="text/html")
 
 
 @app.route("/download/<filename>")
 def download_file(filename):
-    """
-    Download approved output files.
-    """
+    if filename not in OUTPUT_FILES or not (OUTPUT_DIR / filename).exists():
+        abort(404)
+    return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
 
-    allowed_files = {
-        "ip_blocklist.txt",
-        "domain_blocklist.txt",
-        "url_blocklist.txt",
-        "hash_blocklist.txt",
-        "blocklist.csv",
-        "blocklist.json",
-        "ti_results.json",
-        "threat_intelligence_report.html",
-    }
 
-    if filename not in allowed_files:
-        return (
-            "File not allowed",
-            404,
-        )
+# --------------------------------------------------------------------------
+# REST API
+# --------------------------------------------------------------------------
 
-    file_path = (
-        OUTPUT_DATA_DIR
-        / filename
-    )
+@app.route("/health")
+def health():
+    data = load_data()
+    return jsonify(status="ok", iocs=len(data["iocs"]), running=pipeline.is_running(),
+                   data_age_hours=None if results_age_hours() == float("inf")
+                   else round(results_age_hours(), 2))
 
-    if not file_path.exists():
-        return (
-            "File not found",
-            404,
-        )
 
-    return send_from_directory(
-        OUTPUT_DATA_DIR,
-        filename,
-        as_attachment=True,
-    )
+@app.route("/api/status")
+def api_status():
+    load_data()
+    return jsonify(
+        running=pipeline.is_running(), cooldown_seconds=cooldown_remaining(),
+        last_error=_state["last_error"], generated_at=_cache["summary"].get("generated_at"),
+        token_required=bool(config.ADMIN_TOKEN))
+
+
+@app.route("/api/summary")
+def api_summary():
+    load_data()
+    return jsonify(summary=_cache["summary"], feeds=_cache["feeds"])
+
+
+@app.route("/api/iocs")
+def api_iocs():
+    matches = filter_iocs(load_data()["iocs"], request.args)
+    per_page = _int_arg("per_page", 50, 1, 500)
+    total_pages = max(1, -(-len(matches) // per_page))
+    page = min(_int_arg("page", 1, 1, 10 ** 6), total_pages)
+    start = (page - 1) * per_page
+    return jsonify(total=len(matches), page=page, per_page=per_page,
+                   total_pages=total_pages, results=matches[start:start + per_page])
+
+
+@app.route("/api/iocs.csv")
+def api_iocs_csv():
+    matches = filter_iocs(load_data()["iocs"], request.args)[:50000]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CSV_FIELDS)
+    writer.writeheader()
+    writer.writerows(_csv_row(i) for i in matches)
+    return Response(buffer.getvalue(), mimetype="text/csv", headers={
+        "Content-Disposition": "attachment; filename=iocs_filtered.csv"})
+
+
+@app.route("/api/lookup")
+def api_lookup():
+    """Check a single indicator against the aggregated intelligence."""
+    raw = request.args.get("q", "").strip()[:2048]
+    if not raw:
+        return jsonify(error="Provide ?q=<indicator>"), 400
+    ioc_type = detect_ioc_type(raw)
+    if ioc_type == "UNKNOWN":
+        return jsonify(query=raw, valid=False, found=False,
+                       message="Not a recognised IP, domain, URL, hash or e-mail."), 200
+    value = normalize_indicator(raw, ioc_type)
+    data = load_data()
+    hit = data["index"].get((ioc_type, value))
+    range_hits = []
+    if ioc_type == "IP":
+        address = ipaddress.ip_address(value)
+        for item in data["iocs"]:
+            if item.get("type") == "CIDR":
+                try:
+                    if address in ipaddress.ip_network(item["indicator"], strict=False):
+                        range_hits.append(item)
+                except ValueError:
+                    continue
+    return jsonify(query=raw, normalized=value, type=ioc_type, valid=True,
+                   found=bool(hit or range_hits), match=hit, netblocks=range_hits[:5])
+
+
+FEED_TYPES = {"ip": {"IP"}, "cidr": {"CIDR"}, "domain": {"DOMAIN"}, "url": {"URL"},
+              "hash": {"MD5", "SHA1", "SHA256"}, "email": {"EMAIL"}}
+
+
+@app.route("/feeds/<kind>.txt")
+def live_feed(kind):
+    """Plain-text External Dynamic List for firewalls (?min_score=60)."""
+    if kind not in FEED_TYPES:
+        abort(404)
+    min_score = _int_arg("min_score", config.BLOCKLIST_MIN_SCORE, 0, 100)
+    seen, lines = set(), []
+    for item in load_data()["iocs"]:
+        if item.get("type") in FEED_TYPES[kind] and item.get("risk_score", 0) >= min_score \
+                and item["indicator"] not in seen:
+            seen.add(item["indicator"])
+            lines.append(item["indicator"])
+    return Response("\n".join(lines) + ("\n" if lines else ""), mimetype="text/plain")
+
+
+def _authorized():
+    if not config.ADMIN_TOKEN:
+        return True
+    supplied = request.headers.get("X-Admin-Token", "")
+    return hmac.compare_digest(supplied.encode(), config.ADMIN_TOKEN.encode())
+
+
+@app.route("/api/run", methods=["POST"])
+def api_run():
+    if not _authorized():
+        return jsonify(error="Invalid or missing admin token."), 401
+    if pipeline.is_running():
+        return jsonify(status="running", message="A pipeline run is already in progress."), 409
+    wait = cooldown_remaining()
+    if wait:
+        return jsonify(status="cooldown", retry_after=wait,
+                       message=f"Please wait {wait}s before running again."), 429
+    _state["last_started"] = time.time()
+    _run_in_background()
+    return jsonify(status="started"), 202
+
+
+# --------------------------------------------------------------------------
+# Hardening
+# --------------------------------------------------------------------------
+
+@app.after_request
+def security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+        "img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+    if request.path.startswith("/api/") or request.path == "/health":
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.errorhandler(404)
+def not_found(_error):
+    if request.path.startswith("/api/"):
+        return jsonify(error="Not found"), 404
+    return render_template("error.html", code=404, message="Page not found."), 404
+
+
+@app.errorhandler(500)
+def server_error(_error):
+    if request.path.startswith("/api/"):
+        return jsonify(error="Internal server error"), 500
+    return render_template("error.html", code=500, message="Something went wrong."), 500
 
 
 if __name__ == "__main__":
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            5000,
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False,
-    )
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)

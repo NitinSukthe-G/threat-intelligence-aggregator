@@ -1,1 +1,1 @@
-from core.normalizer import normalize_iocs
+

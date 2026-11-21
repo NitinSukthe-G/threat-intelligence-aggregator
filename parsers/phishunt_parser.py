@@ -2,126 +2,53 @@ import csv
 
 from core.validator import detect_ioc_type
 
+# Independent verdict columns published by Phishunt.
+_VERDICT_COLUMNS = (
+    "malicious_google", "malicious_openphish", "malicious_phishtank",
+    "malicious_tweetfeed", "malicious_urlscan",
+)
 
-def parse_phishunt_file(file_path):
+
+def _text(row, key):
+    return str(row.get(key, "") or "").strip()
+
+
+def parse_phishunt_file(file_path, feed=None):
     """
-    Parse Phishunt CSV data.
+    Parse Phishunt CSV data into URL and domain IOCs.
 
-    Extracts URL, domain, and IP indicators
-    while preserving useful metadata.
+    Hosting IPs are intentionally ignored: phishing pages mostly sit behind
+    shared CDNs (Cloudflare, AWS...) and blocking those would break the web.
+    Confidence is raised for every third-party engine that agrees.
     """
-
+    name = feed.name if feed else "Phishunt"
+    base = feed.confidence if feed else 70
     results = []
 
-    with open(
-        file_path,
-        "r",
-        encoding="utf-8",
-        errors="ignore",
-        newline=""
-    ) as file:
-
-        reader = csv.DictReader(file)
-
+    with open(file_path, "r", encoding="utf-8", errors="ignore", newline="") as handle:
+        reader = csv.DictReader(handle)
         if not reader.fieldnames:
             return results
 
         for row in reader:
+            agree = sum(1 for col in _VERDICT_COLUMNS if _text(row, col).lower() == "true")
+            confidence = min(98, base + 7 * agree)
+            common = {
+                "source": name,
+                "first_seen": _text(row, "first_seen"),
+                "last_online": _text(row, "date"),
+                "category": "phishing",
+                "confidence": confidence,
+                "reference": _text(row, "company"),
+                "tags": [f"{agree}-engines-agree"] if agree else [],
+            }
 
-            url = str(
-                row.get("url", "")
-            ).strip()
+            url = _text(row, "url")
+            if url and detect_ioc_type(url) == "URL":
+                results.append({"indicator": url, "type": "URL", **common})
 
-            domain = str(
-                row.get("domain", "")
-            ).strip()
-
-            ip = str(
-                row.get("ip", "")
-            ).strip()
-
-            first_seen = str(
-                row.get("first_seen", "")
-            ).strip()
-
-            last_seen = str(
-                row.get("date", "")
-            ).strip()
-
-            company = str(
-                row.get("company", "")
-            ).strip()
-
-            # -------------------------
-            # URL IOC
-            # -------------------------
-
-            if url:
-
-                ioc_type = detect_ioc_type(url)
-
-                if ioc_type == "URL":
-
-                    results.append(
-                        {
-                            "indicator": url,
-                            "type": "URL",
-                            "source": "Phishunt",
-                            "first_seen": first_seen,
-                            "last_online": last_seen,
-                            "category": "phishing",
-                            "confidence": 80,
-                            "malware": "",
-                            "reference": company
-                        }
-                    )
-
-            # -------------------------
-            # DOMAIN IOC
-            # -------------------------
-
-            if domain:
-
-                ioc_type = detect_ioc_type(domain)
-
-                if ioc_type == "DOMAIN":
-
-                    results.append(
-                        {
-                            "indicator": domain,
-                            "type": "DOMAIN",
-                            "source": "Phishunt",
-                            "first_seen": first_seen,
-                            "last_online": last_seen,
-                            "category": "phishing",
-                            "confidence": 80,
-                            "malware": "",
-                            "reference": company
-                        }
-                    )
-
-            # -------------------------
-            # IP IOC
-            # -------------------------
-
-            if ip:
-
-                ioc_type = detect_ioc_type(ip)
-
-                if ioc_type == "IP":
-
-                    results.append(
-                        {
-                            "indicator": ip,
-                            "type": "IP",
-                            "source": "Phishunt",
-                            "first_seen": first_seen,
-                            "last_online": last_seen,
-                            "category": "phishing-host",
-                            "confidence": 70,
-                            "malware": "",
-                            "reference": company
-                        }
-                    )
+            domain = _text(row, "domain")
+            if domain and detect_ioc_type(domain) == "DOMAIN":
+                results.append({"indicator": domain, "type": "DOMAIN", **common})
 
     return results

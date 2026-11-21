@@ -1,0 +1,5 @@
+indicator,category,malware,confidence,description
+sample-evil-login.net,phishing,KitPhish,85,Credential harvesting domain
+http://cdn.sample-dropper.org/payload.bin,malware,SampleLoader,90,Payload delivery URL
+5d41402abc4b2a76b9719d911017c592,malware,SampleLoader,90,Dropper
+not-an-indicator,,,,

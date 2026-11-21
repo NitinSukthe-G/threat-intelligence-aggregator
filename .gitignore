@@ -2,17 +2,19 @@ venv/
 .env
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Live threat intelligence feeds
-data/raw/feodo.csv
-data/raw/phishunt.csv
+# Downloaded feed cache
+data/raw/*.feed
+data/raw/*.tmp
 
-# Generated runtime output
+# Large generated artefacts (the small blocklists and report stay tracked)
 data/output/ti_results.json
-data/output/blocklist.csv
 data/output/blocklist.json
-data/output/ip_blocklist.txt
-data/output/domain_blocklist.txt
-data/output/url_blocklist.txt
-data/output/hash_blocklist.txt
-data/output/threat_intelligence_report.html
+data/output/stix_bundle.json
+data/output/history.json
+data/output/*.tmp
+
+# Personal files - never commit
+resume.txt
+Links-thre.txt

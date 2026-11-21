@@ -1,0 +1,5 @@
+# Malicious e-mail blocklist
+# Generated: 2026-11-21 16:53 UTC
+# Entries: 0
+# Minimum risk score: 35
+# Source: Threat Intelligence Aggregator

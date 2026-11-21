@@ -1,1 +1,1 @@
-from collectors.feodo import download_feodo_feed
+"""Feed collectors (HTTP fetcher with caching, TAXII client)."""

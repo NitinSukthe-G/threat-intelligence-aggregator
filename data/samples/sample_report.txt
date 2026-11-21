@@ -1,0 +1,6 @@
+# Analyst notes - synthetic sample report (fictional indicators)
+Phishing kit observed at hxxps://login-secure-update[.]sample-evil-login[.]net/verify and
+the landing domain sample-evil-login[.]net. Operator mailbox: ops@sample-evil-login.net
+Dropper hash (MD5): 5d41402abc4b2a76b9719d911017c592
+Second stage SHA256: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
+Staging server 192.0.2.10 is a documentation address and must be filtered out.

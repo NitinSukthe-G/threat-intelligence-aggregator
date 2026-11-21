@@ -1,0 +1,8 @@
+{
+  "feed": "Sample JSON feed",
+  "threats": [
+    {"indicator": "sample-evil-login.net", "note": "seen in campaign"},
+    {"indicator": "https://cdn.sample-dropper.org/payload.bin"},
+    {"nested": {"hash": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"}}
+  ]
+}
